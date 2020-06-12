@@ -1,0 +1,2 @@
+option('ASIO_LIBUSB_BUILD_TESTS', type : 'boolean', value : false, description : 'Build tests')
+option('ASIO_LIBUSB_BUILD_EXAMPLES', type : 'boolean', value : false, description : 'Build examples')
