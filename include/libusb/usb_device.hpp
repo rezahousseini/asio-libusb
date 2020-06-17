@@ -43,28 +43,24 @@ public:
   explicit usb_device(const executor_type& ex)
     : impl_(ex)
   { 
-  }
+  } 
 
-  /// Construct and open an usb_device.
+  /// Construct a usb_device without opening it.
   /**
-   * This constructor creates and opens an usb device for the specified vendor 
-   * and product id.
+   * This constructor creates a usb device without opening it.
    *
-   * @param ex The I/O executor that the usb device will use, by default, to
-   * dispatch handlers for any asynchronous operations performed on the
-   * usb device.
-   *
-   * @param vendor_id The vendor id for this usb device.
-   * @param product_id The product id for this usb device.
+   * @param context An execution context which provides the I/O executor that
+   * the serial port will use, by default, to dispatch handlers for any
+   * asynchronous operations performed on the serial port.
    */
-  usb_device(const executor_type& ex, std::uint16_t vendor_id, 
-      std::uint16_t product_id)
-    : impl_(ex)
+  template <typename ExecutionContext>
+  explicit usb_device(ExecutionContext& context,
+      typename std::enable_if<
+        asio::is_convertible<ExecutionContext&, asio::execution_context&>::value,
+        usb_device
+      >::type* = 0)
+    : impl_(context)
   {
-    boost::system::error_code ec;
-    impl_.get_service().open(impl_.get_implementation(), 
-        vendor_id, product_id, ec, impl_.get_implementation_executor());
-    asio::detail::throw_error(ec, "open");
   }
 
   /// Construct a usb_device on an existing native usb device.
@@ -167,39 +163,28 @@ public:
     return *this;
   }
 
-  /// Open the usb device using the specified vendor and product id.
+  /// Open the usb device.
   /**
-   * This function opens the usb device for the specified vendor and 
-   * product id.
-   *
-   * @param vendor_id The vendor id for this usb device.
-   * @param product_id The product id for this usb device.
+   * This function opens the usb device.
    *
    * @throws boost::system::system_error Thrown on failure.
    */
-  void open(std::uint16_t vendor_id, std::uint16_t product_id)
+  void open()
   {
     boost::system::error_code ec;
-    impl_.get_service().open(impl_.get_implementation(), vendor_id, 
-        product_id, ec, impl_.get_implementation_executor());
+    impl_.get_service().open(impl_.get_implementation(), ec);
     asio::detail::throw_error(ec, "open");
   }
 
-  /// Open the usb_device using the specified vendor and product id.
+  /// Open the usb_device.
   /**
-   * This function opens the usb device for the specified vendor and 
-   * product id.
-   *
-   * @param vendor_id The vendor id for this usb device.
-   * @param product_id The product id for this usb device.
+   * This function opens the usb device.
    *
    * @param ec Set the indicate what error occurred, if any.
    */
-  BOOST_ASIO_SYNC_OP_VOID open(std::uint16_t vendor_id, 
-      std::uint16_t product_id, boost::system::error_code& ec)
+  BOOST_ASIO_SYNC_OP_VOID open(boost::system::error_code& ec)
   {
-    impl_.get_service().open(impl_.get_implementation(), vendor_id, 
-        product_id, ec);
+    impl_.get_service().open(impl_.get_implementation(), ec);
     BOOST_ASIO_SYNC_OP_VOID_RETURN(ec);
   }
 
@@ -211,7 +196,7 @@ public:
    *
    * @throws boost::system::system_error Thrown on failure.
    */
-  void assign(const native_handle_type& native_usb_device)
+  void assign(const native_handle_type native_usb_device)
   {
     boost::system::error_code ec;
     impl_.get_service().assign(impl_.get_implementation(),
@@ -227,7 +212,7 @@ public:
    *
    * @param ec Set to indicate what error occurred, if any.
    */
-  BOOST_ASIO_SYNC_OP_VOID assign(const native_handle_type& native_usb_device,
+  BOOST_ASIO_SYNC_OP_VOID assign(const native_handle_type native_usb_device,
       boost::system::error_code& ec)
   {
     impl_.get_service().assign(impl_.get_implementation(),

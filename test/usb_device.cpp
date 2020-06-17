@@ -8,6 +8,8 @@ int main()
 
   "open device"_test = []
   {
+    asio::io_context io_context;
+    usb_device device(io_context);
     std::int32_t i = 42; 
     expect(42_i == i);
   }; 

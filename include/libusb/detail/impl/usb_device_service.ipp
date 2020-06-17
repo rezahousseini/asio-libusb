@@ -9,9 +9,15 @@ namespace libusb {
 namespace detail { 
 
 void usb_device_service::assign(usb_device_service::implementation_type& impl, 
-    native_handle_type& native_usb_device, boost::system::error_code& /*ec*/)
+    native_handle_type native_usb_device, boost::system::error_code& ec)
 {
-  impl.dev_handle_ = native_usb_device;
+  if (is_open(impl))
+  {
+    ec = boost::asio::error::already_open;
+    return;
+  }
+
+  impl.device_ = native_usb_device;
 }
 
 bool usb_device_service::is_open(const implementation_type& impl) const
@@ -19,72 +25,40 @@ bool usb_device_service::is_open(const implementation_type& impl) const
   return impl.dev_handle_ != NULL;
 }
 
-template <typename IoExecutor>
 void usb_device_service::open(implementation_type& impl, 
-    std::uint16_t vendor_id, std::uint16_t product_id, 
-    boost::system::error_code& ec, const IoExecutor& io_ex)
+    boost::system::error_code& ec)
 {
-  libusb_device** devs;
   if (is_open(impl))
   {
     ec = boost::asio::error::already_open;
     return;
-  }
+  } 
 
-  int cnt = libusb_get_device_list(impl.ctx_, &devs);
-  if (cnt < 0)
-  {
-    impl.convert_error_free_device_list(cnt, ec, devs);
-	  return;
-  }
-
-  int index;
-  for (index = 0; index < cnt; index++)
-  {
-    struct libusb_device_descriptor desc;
-
-    auto ret = libusb_get_device_descriptor(devs[index], &desc);
-    if (ret < 0)
-    {
-      impl.convert_error_free_device_list(ret, ec, devs);
-	    return;
-    }
-    if (desc.idVendor == vendor_id && desc.idProduct == product_id)
-    {
-      break;  
-    }
-    if (index == cnt - 1)
-    {
-      impl.convert_error_free_device_list(LIBUSB_ERROR_NOT_FOUND, ec, devs);
-	    return;
-    }
-  }
-
-  auto err = libusb_open(devs[index], &impl.dev_handle_);
+  auto err = libusb_open(impl.device_, &impl.dev_handle_);
   if (err != LIBUSB_SUCCESS)
   {
-    impl.convert_error_free_device_list(err, ec, devs); 
+    ec = error(libusb_error(err)).error_code();
     return;
   }
 
   // claim interface
-  do_set_option(impl, impl.interface_number_, ec);
-
-  // start event handling
-  impl.handle_events(io_ex);
+  do_set_option(impl, impl.interface_number_, ec); 
 }
 
 void usb_device_service::close(implementation_type& impl, 
     boost::system::error_code& /*ec*/)
 {
   impl.do_handle_events_ = false;
-  libusb_close(impl.dev_handle_);
+  if (is_open(impl))
+  {
+    libusb_close(impl.dev_handle_);
+  }
 }
 
 usb_device_service::native_handle_type usb_device_service::native_handle(
     implementation_type& impl)
 {
-  return impl.dev_handle_;
+  return impl.device_;
 }
 
 void usb_device_service::cancel(implementation_type& impl, 

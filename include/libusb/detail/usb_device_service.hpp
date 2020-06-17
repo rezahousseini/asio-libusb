@@ -4,6 +4,7 @@
 #include <libusb.h>
 #include "libusb/usb_device_base.hpp"
 #include "libusb/error.hpp"
+#include "libusb/detail/async_accept_op.hpp"
 #include "libusb/detail/async_transfer_op.hpp"
 
 namespace libusb {
@@ -18,39 +19,38 @@ public:
   class implementation_type
   {
   public:
-    typedef struct libusb_device_handle* native_handle_type;
+    typedef struct libusb_device* native_handle_type;
   
     implementation_type()
-      : dev_handle_(NULL)
+      : device_(NULL)
+      , dev_handle_(NULL)
       , ctx_()
-      , interface_number_()
-      , endpoint_address_()
-      , do_handle_events_()
+      , interface_number_(0)
+      , endpoint_address_(0)
+      , do_handle_events_(false)
     {
-    }
-  
-    void convert_error_free_device_list(int err, boost::system::error_code& ec, 
-        libusb_device** list) const
-    {
-      ec = error(libusb_error(err)).error_code(); 
-      libusb_free_device_list(list, 1);
-    }
+    } 
   
     template <typename IoExecutor>
     void handle_events(const IoExecutor& io_ex)
     {
-      do_handle_events_ = true;
-      io_ex.post([this]()
-      { 
-        while(do_handle_events_)
-          libusb_handle_events(NULL);
-      }); 
+      if (!do_handle_events_)
+      {
+        do_handle_events_ = true;
+        asio::post(io_ex, 
+        [this]()
+        { 
+          while(do_handle_events_)
+            libusb_handle_events(NULL);
+        }); 
+      }
     }
   
   private:
     friend class usb_device_service;
   
-    native_handle_type dev_handle_;
+    native_handle_type device_;
+    struct libusb_device_handle* dev_handle_;
     struct libusb_context* ctx_;
     usb_device_base::interface_number interface_number_;
     usb_device_base::endpoint_address endpoint_address_;
@@ -64,13 +64,28 @@ public:
   {
   }
 
-  template <typename IoExecutor>
-  BOOST_ASIO_DECL void open(implementation_type& impl, 
-      std::uint16_t vendor_id, std::uint16_t product_id, 
-      boost::system::error_code& ec, const IoExecutor& io_ex);
+  void construct(implementation_type& /*impl*/)
+  {
+  }
+
+  void shutdown()
+  {
+  }
+
+  void destroy(implementation_type& impl)
+  {
+    if (is_open(impl))
+    {
+      boost::system::error_code ignored_ec;
+      close(impl, ignored_ec);
+    }
+  }
+
+  BOOST_ASIO_DECL void open(implementation_type& impl,
+      boost::system::error_code& ec);
 
   BOOST_ASIO_DECL void assign(implementation_type& impl, 
-      native_handle_type& native_usb_device, boost::system::error_code& ec);
+      native_handle_type native_usb_device, boost::system::error_code& ec);
 
   BOOST_ASIO_DECL bool is_open(const implementation_type& impl) const;
 
@@ -96,6 +111,17 @@ public:
     do_get_option(impl, option, ec);
   }
 
+  template <typename Device, typename Handler, typename IoExecutor>
+  void async_accept(implementation_type& impl, Device& peer, 
+      std::uint16_t vendor_id, std::uint16_t product_id, Handler& handler, 
+      const IoExecutor& io_ex)
+  {
+    async_accept_op<Device, Handler, IoExecutor> op(impl.ctx_, peer, 
+        vendor_id, product_id, handler, io_ex);
+
+      op.start();
+  }
+
   template <typename ConstBufferSequence>
   BOOST_ASIO_DECL std::size_t send(implementation_type& impl, 
     const ConstBufferSequence& buffers, boost::system::error_code& ec);
@@ -106,6 +132,9 @@ public:
       const ConstBufferSequence& buffers,
       WriteHandler& handler, const IoExecutor& io_ex)
   {
+    // start libusb event handling
+    impl.handle_events(io_ex);
+
     async_transfer_op<ConstBufferSequence, WriteHandler, IoExecutor> op(
         impl.dev_handle_, impl.endpoint_address_.value(), buffers, handler, 
         io_ex);
@@ -123,12 +152,15 @@ public:
       const MutableBufferSequence& buffers,
       ReadHandler& handler, const IoExecutor& io_ex)
   {
+    // start libusb event handling
+    impl.handle_events(io_ex);
+
     async_transfer_op<MutableBufferSequence, ReadHandler, IoExecutor> op(
         impl.dev_handle_, impl.endpoint_address_.value(), buffers, handler, 
         io_ex);
 
     op.start();
-  }
+  } 
 
 private:
   BOOST_ASIO_DECL void do_set_option(implementation_type& impl, 

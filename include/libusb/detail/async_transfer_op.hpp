@@ -68,7 +68,7 @@ private:
   void do_complete(boost::system::error_code& ec, 
       std::size_t bytes_transferred)
   {
-    io_executor_.post(
+    asio::post(io_executor_,
       [handler = std::move(handler_), &ec, bytes_transferred]()
       { 
         handler(ec, bytes_transferred);

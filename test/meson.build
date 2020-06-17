@@ -2,6 +2,7 @@ boost_ut_dep = dependency('boost_ut', fallback : ['boost_ut', 'boost_ut_dep'])
 
 progs = [
   'usb_device',
+  'acceptor',
 ]
 
 foreach p : progs
