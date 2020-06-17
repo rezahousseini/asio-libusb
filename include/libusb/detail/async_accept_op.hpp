@@ -20,39 +20,37 @@ public:
     , vendor_id_(vendor_id)
     , product_id_(product_id)
     , handler_(BOOST_ASIO_MOVE_CAST(Handler)(handler))
-    , io_executor_(io_ex)
-  {  
+    , work_(asio::make_work_guard(io_ex))
+  { 
   }
 
   void start()
   {
-    boost::system::error_code ec;
-    asio::post(io_executor_,
-    [this, &ec]()
+    asio::post(work_.get_executor(),
+    [*this, handler=std::move(handler_)]() mutable
     { 
-      do_perform(ec);
-      if (ec)
+      boost::system::error_code ec;
+      do_perform(std::move(peer_), vendor_id_, product_id_, ec);
+      if (ec or peer_.is_open())
       {
-        do_complete(ec);
+        asio::dispatch(work_.get_executor(), 
+          [handler=std::move(handler), ec=std::move(ec)]() mutable 
+          { 
+            handler(std::move(ec)); 
+          });
       }
       else
       {
-        if (!peer_.is_open())
-        {
-          // no device found, search again
-          start();
-        }
-        else
-        { 
-          do_complete(ec);
-        }
+        // no device found, search again
+        start(); 
       }
     });
   } 
 
 private:
 
-  void do_perform(boost::system::error_code& ec)
+  void do_perform(Device&& peer, std::uint16_t vendor_id, 
+      std::uint16_t product_id, boost::system::error_code& ec)
   {
     libusb_device** devs;
     
@@ -75,21 +73,18 @@ private:
         ec = error(libusb_error(ret)).error_code();
 	      break;
       }
-      if (desc.idVendor == vendor_id_ && desc.idProduct == product_id_)
+
+      if (desc.idVendor == vendor_id && desc.idProduct == product_id)
       {
-        peer_.assign(devs[index]);
-        peer_.open();
+        peer.assign(devs[index], ec);
+        if (ec)
+          break;
+        peer.open(ec);
         break;
       } 
     } 
     libusb_free_device_list(devs, 1);
   }
-
-  void do_complete(boost::system::error_code& ec)
-  {
-    asio::post(io_executor_, 
-        [handler = std::move(handler_), &ec](){ handler(ec); });
-  } 
 
 private:
   struct libusb_context* context_;
@@ -97,7 +92,7 @@ private:
   std::uint16_t vendor_id_;
   std::uint16_t product_id_;
   Handler handler_;
-  IoExecutor io_executor_;
+  asio::executor_work_guard<IoExecutor> work_;
 };
 
 } // namespace detail

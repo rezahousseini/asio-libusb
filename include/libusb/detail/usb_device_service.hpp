@@ -37,6 +37,7 @@ public:
       if (!do_handle_events_)
       {
         do_handle_events_ = true;
+        std::cout << "Start handling events" << std::endl;
         asio::post(io_ex, 
         [this]()
         { 
@@ -64,8 +65,12 @@ public:
   {
   }
 
-  void construct(implementation_type& /*impl*/)
+  void construct(implementation_type& impl)
   {
+    boost::system::error_code ec;
+    auto err = libusb_init(&impl.ctx_);
+    ec = error(libusb_error(err)).error_code();
+    asio::detail::throw_error(ec, "construct");
   }
 
   void shutdown()
@@ -79,6 +84,7 @@ public:
       boost::system::error_code ignored_ec;
       close(impl, ignored_ec);
     }
+    libusb_exit(impl.ctx_);
   }
 
   BOOST_ASIO_DECL void open(implementation_type& impl,

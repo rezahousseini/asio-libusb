@@ -46,11 +46,14 @@ void usb_device_service::open(implementation_type& impl,
 }
 
 void usb_device_service::close(implementation_type& impl, 
-    boost::system::error_code& /*ec*/)
+    boost::system::error_code& ec)
 {
   impl.do_handle_events_ = false;
   if (is_open(impl))
   {
+    int err = libusb_release_interface(impl.dev_handle_, 
+        impl.interface_number_.value());
+    ec = error(libusb_error(err)).error_code();
     libusb_close(impl.dev_handle_);
   }
 }
