@@ -22,34 +22,29 @@ public:
     , handler_(BOOST_ASIO_MOVE_CAST(Handler)(handler))
     , work_(asio::make_work_guard(io_ex))
   { 
-  }
+  } 
 
   void start()
   {
     asio::post(work_.get_executor(),
-    [*this, handler=std::move(handler_)]() mutable
+    [this, handler=std::move(handler_)]() mutable
     { 
       boost::system::error_code ec;
-      do_perform(std::move(peer_), vendor_id_, product_id_, ec);
-      if (ec or peer_.is_open())
+      while(!ec and !peer_.is_open())
       {
-        asio::dispatch(work_.get_executor(), 
-          [handler=std::move(handler), ec=std::move(ec)]() mutable 
-          { 
-            handler(std::move(ec)); 
-          });
+        find_device(std::move(peer_), vendor_id_, product_id_, ec);
       }
-      else
-      {
-        // no device found, search again
-        start(); 
-      }
+      asio::dispatch(work_.get_executor(), 
+        [handler=std::move(handler), ec=std::move(ec)]() mutable 
+        { 
+          handler(std::move(ec)); 
+        });
     });
-  } 
+  }
 
 private:
 
-  void do_perform(Device&& peer, std::uint16_t vendor_id, 
+  void find_device(Device&& peer, std::uint16_t vendor_id, 
       std::uint16_t product_id, boost::system::error_code& ec)
   {
     libusb_device** devs;

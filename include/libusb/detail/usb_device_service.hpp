@@ -184,6 +184,7 @@ private:
   BOOST_ASIO_DECL void do_get_option(implementation_type& impl, 
       usb_device_base::interface_number& option, 
       boost::system::error_code& ec);
+
 };
 
 } // namespace detail
