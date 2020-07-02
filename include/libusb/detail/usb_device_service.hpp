@@ -19,33 +19,17 @@ public:
   class implementation_type
   {
   public:
-    typedef struct libusb_device* native_handle_type;
+    typedef libusb_device* native_handle_type;
   
     implementation_type()
       : device_(NULL)
       , dev_handle_(NULL)
-      , ctx_()
+      , ctx_(NULL)
       , interface_number_(0)
       , endpoint_address_(0)
-      , do_handle_events_(false)
+      , is_handling_events_(false)
     {
     } 
-  
-    template <typename IoExecutor>
-    void handle_events(const IoExecutor& io_ex)
-    {
-      if (!do_handle_events_)
-      {
-        do_handle_events_ = true;
-        std::cout << "Start handling events" << std::endl;
-        asio::post(io_ex, 
-        [this]()
-        { 
-          while(do_handle_events_)
-            libusb_handle_events(NULL);
-        }); 
-      }
-    }
   
   private:
     friend class usb_device_service;
@@ -55,7 +39,7 @@ public:
     struct libusb_context* ctx_;
     usb_device_base::interface_number interface_number_;
     usb_device_base::endpoint_address endpoint_address_;
-    std::atomic<bool> do_handle_events_;
+    std::atomic<bool> is_handling_events_;
   };
 
   typedef implementation_type::native_handle_type native_handle_type;
@@ -66,11 +50,32 @@ public:
   }
 
   void construct(implementation_type& impl)
+  { 
+    if (!impl.ctx_)
+    {
+      boost::system::error_code ec;
+      // use default context for now (instead of &impl.ctx_)
+      auto err = libusb_init(NULL);
+      ec = libusb_error(err);
+      asio::detail::throw_error(ec, "construct");
+    }
+  }
+
+  void move_construct(implementation_type& impl, 
+      implementation_type& other_impl)
   {
-    boost::system::error_code ec;
-    auto err = libusb_init(&impl.ctx_);
-    ec = error(libusb_error(err)).error_code();
-    asio::detail::throw_error(ec, "construct");
+    impl.device_ = other_impl.device_;
+    other_impl.device_ = NULL;
+
+    impl.dev_handle_ = other_impl.dev_handle_;
+    other_impl.dev_handle_ = NULL;
+
+    impl.ctx_ = other_impl.ctx_;
+    other_impl.ctx_ = NULL;
+
+    impl.interface_number_ = other_impl.interface_number_;
+
+    impl.endpoint_address_ = other_impl.endpoint_address_;
   }
 
   void shutdown()
@@ -111,8 +116,8 @@ public:
   }
 
   template <typename GettableUsbDeviceOption>
-  void get_option(implementation_type& impl, 
-      GettableUsbDeviceOption& option, boost::system::error_code& ec)
+  void get_option(const implementation_type& impl, 
+      GettableUsbDeviceOption& option, boost::system::error_code& ec) const
   {
     do_get_option(impl, option, ec);
   }
@@ -122,10 +127,17 @@ public:
       std::uint16_t vendor_id, std::uint16_t product_id, Handler& handler, 
       const IoExecutor& io_ex)
   {
-    async_accept_op<Device, Handler, IoExecutor> op(impl.ctx_, peer, 
-        vendor_id, product_id, handler, io_ex);
+    typedef async_accept_op<Device, Handler, IoExecutor> op;
+    typename op::ptr p = { asio::detail::addressof(handler),
+      op::ptr::allocate(handler), 0 };
+    p.p = new (p.v) op(impl.ctx_, peer, vendor_id, product_id, handler, io_ex);
 
-      op.start();
+    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
+          reinterpret_cast<uintmax_t>(impl.handle_), "async_accept"));
+
+    start_accept_op(impl, p.p);
+
+    p.v = p.p = 0;
   }
 
   template <typename ConstBufferSequence>
@@ -138,14 +150,18 @@ public:
       const ConstBufferSequence& buffers,
       WriteHandler& handler, const IoExecutor& io_ex)
   {
-    // start libusb event handling
-    impl.handle_events(io_ex);
+    typedef async_transfer_op<
+      ConstBufferSequence, WriteHandler, IoExecutor> op;
+    typename op::ptr p = { asio::detail::addressof(handler),
+      op::ptr::allocate(handler), 0 };
+    p.p = new (p.v) op(impl.ctx_, buffers, handler, io_ex);
 
-    async_transfer_op<ConstBufferSequence, WriteHandler, IoExecutor> op(
-        impl.dev_handle_, impl.endpoint_address_.value(), buffers, handler, 
-        io_ex);
+    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
+          reinterpret_cast<uintmax_t>(impl.handle_), "async_send"));
 
-    op.start();
+    start_transfer_op(impl, buffers, p.p);
+
+    p.v = p.p = 0;
   }
 
   template <typename MutableBufferSequence>
@@ -158,14 +174,18 @@ public:
       const MutableBufferSequence& buffers,
       ReadHandler& handler, const IoExecutor& io_ex)
   {
-    // start libusb event handling
-    impl.handle_events(io_ex);
+    typedef async_transfer_op<
+      MutableBufferSequence, ReadHandler, IoExecutor> op;
+    typename op::ptr p = { asio::detail::addressof(handler),
+      op::ptr::allocate(handler), 0 };
+    p.p = new (p.v) op(impl.ctx_, buffers, handler, io_ex);
 
-    async_transfer_op<MutableBufferSequence, ReadHandler, IoExecutor> op(
-        impl.dev_handle_, impl.endpoint_address_.value(), buffers, handler, 
-        io_ex);
+    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
+          reinterpret_cast<uintmax_t>(impl.handle_), "async_receive"));
 
-    op.start();
+    start_transfer_op(impl, buffers, p.p);
+
+    p.v = p.p = 0;
   } 
 
 private:
@@ -177,14 +197,21 @@ private:
       const usb_device_base::interface_number& option, 
       boost::system::error_code& ec);
 
-  BOOST_ASIO_DECL void do_get_option(implementation_type& impl, 
+  BOOST_ASIO_DECL void do_get_option(const implementation_type& impl, 
       usb_device_base::endpoint_address& option, 
-      boost::system::error_code& ec);
+      boost::system::error_code& ec) const;
 
-  BOOST_ASIO_DECL void do_get_option(implementation_type& impl, 
+  BOOST_ASIO_DECL void do_get_option(const implementation_type& impl, 
       usb_device_base::interface_number& option, 
-      boost::system::error_code& ec);
+      boost::system::error_code& ec) const;
 
+  template <typename Operation>
+  BOOST_ASIO_DECL void start_accept_op(implementation_type& impl,
+      Operation* op);
+
+  template <typename BufferSequence, typename Operation>
+  BOOST_ASIO_DECL void start_transfer_op(implementation_type& impl, 
+      const BufferSequence& buffers, Operation* op);
 };
 
 } // namespace detail

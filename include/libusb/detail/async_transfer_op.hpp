@@ -1,5 +1,6 @@
 #pragma once
 
+#include <boost/asio.hpp>
 #include <libusb.h>
 
 namespace asio = boost::asio;
@@ -7,79 +8,100 @@ namespace asio = boost::asio;
 namespace libusb {
 namespace detail {
 
-template <typename MutableBufferSequence, typename Handler, 
-         typename IoExecutor>
+template <typename BufferSequence, typename Handler, typename IoExecutor>
 class async_transfer_op
 {
 public:
-  async_transfer_op(libusb_device_handle* dev_handle,
-                    std::uint8_t endpoint,
-                    const MutableBufferSequence& buffers,
-                    Handler& handler, const IoExecutor& io_ex)
-    : buffers_(buffers)
+  BOOST_ASIO_DEFINE_HANDLER_PTR(async_transfer_op);
+
+  struct libusb_transfer* transfer;
+
+  async_transfer_op(struct libusb_context* ctx, const BufferSequence& buffers, 
+      Handler& handler, const IoExecutor& io_ex)
+    : ctx_(ctx)
+    , buffers_(buffers)
     , handler_(BOOST_ASIO_MOVE_CAST(Handler)(handler))
     , io_executor_(io_ex)
-    , transfer_(libusb_alloc_transfer(0))
+    , transfer_complete_(0)
+    , bytes_transferred_(0)
   { 
-    asio::detail::buffer_sequence_adapter<asio::mutable_buffer,
-      MutableBufferSequence> bufs(buffers_);
-
-    async_transfer_op *op = new async_transfer_op(
-      BOOST_ASIO_MOVE_CAST(async_transfer_op)(*this));
-
-    libusb_fill_interrupt_transfer(transfer_, 
-      dev_handle, 
-      endpoint, 
-      bufs.buffers(),
-      bufs.count(),
-      &callback,
-      op,
-      0);
+    transfer = libusb_alloc_transfer(0);
+    asio::detail::handler_work<Handler, IoExecutor>::start(handler_, io_executor_); 
   }
 
-  ~async_transfer_op()
+  template <typename Operator>
+  static bool do_perform(Operator* o)
   {
-    libusb_free_transfer(transfer_);
+    std::cout << "perform" << std::endl; 
+    int err = libusb_handle_events_completed(o->ctx_, &o->transfer_complete_);
+    std::cout << "end handle event with: " << err << std::endl;
+    o->ec_ = libusb_error(err);
+    return err != LIBUSB_SUCCESS or o->transfer_complete_;
   }
 
-  void start()
+  static void LIBUSB_CALL callback(struct libusb_transfer* transfer)
   {
-    int err = libusb_submit_transfer(transfer_);
-    if (err != LIBUSB_SUCCESS)
+    auto o = static_cast<
+      async_transfer_op<BufferSequence, Handler, IoExecutor>*>(
+          transfer->user_data);
+
+    std::cout << "Transfer status: " << transfer->status << std::endl;
+    if (transfer->status != LIBUSB_TRANSFER_COMPLETED)
     {
-      auto ec = error(libusb_error(err)).error_code();
-      do_complete(ec, 0);
+      o->ec_ = libusb_error(transfer->status);
+	  }
+
+    o->bytes_transferred_ = transfer->actual_length;
+    o->transfer_complete_ = 1;
+
+    libusb_free_transfer(transfer);
+  }
+
+  template <typename Operation>
+  static void do_complete(void* owner, Operation* o)
+  {
+    do_complete(owner, o, o->ec_, o->bytes_transferred_);
+  }
+
+  template <typename Operation>
+  static void do_complete(void* owner, Operation* o, 
+      const boost::system::error_code& ec, std::size_t bytes_transferred)
+  { 
+    ptr p = { asio::detail::addressof(o->handler_), o, o };
+
+    asio::detail::handler_work<Handler, IoExecutor> w(o->handler_, o->io_executor_);
+
+    BOOST_ASIO_HANDLER_COMPLETION((*o));
+
+    // Make a copy of the handler so that the memory can be deallocated before
+    // the upcall is made. Even if we're not about to make an upcall, a
+    // sub-object of the handler may be the true owner of the memory associated
+    // with the handler. Consequently, a local copy of the handler is required
+    // to ensure that any owning sub-object remains valid until after we have
+    // deallocated the memory here.
+    asio::detail::binder2<Handler, boost::system::error_code, std::size_t>
+      handler(o->handler_, ec, bytes_transferred);
+    p.h = asio::detail::addressof(handler.handler_);
+    p.reset();
+
+    // Make the upcall if required.
+    if (owner)
+    {
+      asio::detail::fenced_block b(asio::detail::fenced_block::half);
+      BOOST_ASIO_HANDLER_INVOCATION_BEGIN((handler.arg1_, handler.arg2_));
+      w.complete(handler, handler.handler_);
+      BOOST_ASIO_HANDLER_INVOCATION_END;
     }
   } 
 
-  void callback(struct libusb_transfer* transfer)
-  {
-    auto op = std::make_unique<async_transfer_op>(
-      static_cast<async_transfer_op*>(transfer->user_data));
-    bool expected(false);
-
-    // call handler
-    auto ec = error(libusb_error(transfer->status)).error_code();
-    op->do_complete(ec, transfer->actual_length);
-  } 
-
 private:
-
-  void do_complete(boost::system::error_code& ec, 
-      std::size_t bytes_transferred)
-  {
-    asio::post(io_executor_,
-      [handler = std::move(handler_), &ec, bytes_transferred]()
-      { 
-        handler(ec, bytes_transferred);
-      });
-  } 
-
-private:
-  MutableBufferSequence buffers_;
+  struct libusb_context* ctx_;
+  BufferSequence buffers_;
   Handler handler_;
-  IoExecutor io_executor_;
-  struct libusb_transfer* transfer_;
+  IoExecutor io_executor_;  
+  int transfer_complete_;
+  std::size_t bytes_transferred_;
+  boost::system::error_code ec_; 
 };
 
 } // namespace detail

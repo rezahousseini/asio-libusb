@@ -50,13 +50,14 @@ public:
    * This constructor creates a usb device without opening it.
    *
    * @param context An execution context which provides the I/O executor that
-   * the serial port will use, by default, to dispatch handlers for any
-   * asynchronous operations performed on the serial port.
+   * the usb device will use, by default, to dispatch handlers for any
+   * asynchronous operations performed on the usb device.
    */
   template <typename ExecutionContext>
   explicit usb_device(ExecutionContext& context,
       typename std::enable_if<
-        asio::is_convertible<ExecutionContext&, asio::execution_context&>::value,
+        asio::is_convertible<ExecutionContext&, 
+        asio::execution_context&>::value,
         usb_device
       >::type* = 0)
     : impl_(context)

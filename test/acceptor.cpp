@@ -1,3 +1,4 @@
+#include <memory>
 #include <boost/ut.hpp>
 #include "libusb/usb_device_acceptor.hpp"
 
@@ -11,17 +12,16 @@ int main()
   {
     asio::io_context io_context;
     usb_device_acceptor acceptor(io_context);
-    usb_device device(io_context);
-    boost::system::error_code my_ec;
+    auto device = std::make_shared<usb_device<>>(io_context);
 
-    acceptor.async_accept(device, 0xdead, 0xbeef, 
-        [&my_ec](const boost::system::error_code& ec)
+    acceptor.async_accept(device->lowest_layer(), 0xdead, 0xbeef, 
+        [device](const boost::system::error_code& ec)
         {
-          my_ec = ec;
+          expect(!ec) << ec;
+          device->open();
+          expect(device->is_open());
         });
-    io_context.run();
-    
-    expect(!my_ec) << my_ec;
-    expect(device.is_open());
+
+    io_context.run(); 
   }; 
 }
