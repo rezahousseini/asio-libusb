@@ -34,7 +34,7 @@ public:
   {
     /* std::cout << "perform" << std::endl; */ 
     int err = libusb_handle_events_completed(o->ctx_, &o->transfer_complete_);
-    std::cout << "end handle event with: " << err << std::endl;
+    /* std::cout << "end handle event with: " << err << std::endl; */
     o->ec_ = libusb_error(err);
     return err == LIBUSB_SUCCESS and !o->transfer_complete_;
   }
