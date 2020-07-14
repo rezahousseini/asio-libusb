@@ -84,11 +84,8 @@ public:
 
   void destroy(implementation_type& impl)
   {
-    if (is_open(impl))
-    {
-      boost::system::error_code ignored_ec;
-      close(impl, ignored_ec);
-    }
+    boost::system::error_code ignored_ec;
+    close(impl, ignored_ec);
     libusb_exit(impl.ctx_);
   }
 

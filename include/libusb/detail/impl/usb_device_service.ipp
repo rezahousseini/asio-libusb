@@ -206,15 +206,15 @@ void usb_device_service::start_transfer_op(implementation_type& impl,
         boost::system::error_code(libusb_error(err)), 0);
   }
 
-  /* asio::dispatch( */
-  /*     [op]() mutable */
-  /*     { */
-  /*       /1* while(!Operation::do_perform(op)) {} *1/ */
-  /*       Operation::do_perform(op); */
-  /*       Operation::do_complete(op, op); */
-  /*     }); */
-  Operation::do_perform(op);
-  Operation::do_complete(op, op);
+  asio::dispatch(
+      [op]() mutable
+      {
+        /* while(!Operation::do_perform(op)) {} */
+        Operation::do_perform(op);
+        Operation::do_complete(op, op);
+      });
+  /* Operation::do_perform(op); */
+  /* Operation::do_complete(op, op); */
 }
 
 } // namespace detail
