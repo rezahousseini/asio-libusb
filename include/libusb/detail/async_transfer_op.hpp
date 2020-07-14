@@ -32,9 +32,9 @@ public:
   template <typename Operator>
   static bool do_perform(Operator* o)
   {
-    std::cout << "perform" << std::endl; 
+    /* std::cout << "perform" << std::endl; */ 
     int err = libusb_handle_events_completed(o->ctx_, &o->transfer_complete_);
-    std::cout << "end handle event with: " << err << std::endl;
+    /* std::cout << "end handle event with: " << err << std::endl; */
     o->ec_ = libusb_error(err);
     return err == LIBUSB_SUCCESS and !o->transfer_complete_;
   }
@@ -45,7 +45,7 @@ public:
       async_transfer_op<BufferSequence, Handler, IoExecutor>*>(
           transfer->user_data);
 
-    std::cout << "Transfer status: " << transfer->status << std::endl;
+    /* std::cout << "Transfer status: " << transfer->status << std::endl; */
     if (transfer->status != LIBUSB_TRANSFER_COMPLETED)
     {
       o->ec_ = libusb_error(transfer->status);
