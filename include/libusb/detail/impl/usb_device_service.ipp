@@ -150,7 +150,7 @@ size_t usb_device_service::receive(implementation_type& impl,
 
   int rc = libusb_interrupt_transfer(
       impl.dev_handle_,
-	    impl.endpoint_address_.value(),
+	    impl.endpoint_address_.value() + 128,
 	    bufs.buffers(),
 	    bufs.count(),
 	    &bytes_transferred,
@@ -181,7 +181,7 @@ void usb_device_service::start_accept_op(implementation_type& impl,
 
 template <typename BufferSequence, typename Operation>
 void usb_device_service::start_transfer_op(implementation_type& impl, 
-    const BufferSequence& buffers, Operation* op)
+    const BufferSequence& buffers, std::uint8_t address, Operation* op)
 {
   if(!is_open(impl))
   {
@@ -192,7 +192,7 @@ void usb_device_service::start_transfer_op(implementation_type& impl,
   libusb_fill_interrupt_transfer(
       op->transfer, 
       impl.dev_handle_, 
-      impl.endpoint_address_.value(), 
+      address, 
       static_cast<unsigned char*>(buffers.data()),
       buffers.size(),
       &Operation::callback,

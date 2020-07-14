@@ -156,7 +156,7 @@ public:
     BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
           reinterpret_cast<uintmax_t>(impl.handle_), "async_send"));
 
-    start_transfer_op(impl, buffers, p.p);
+    start_transfer_op(impl, buffers, impl.endpoint_address_.value(), p.p);
 
     p.v = p.p = 0;
   }
@@ -180,7 +180,7 @@ public:
     BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
           reinterpret_cast<uintmax_t>(impl.handle_), "async_receive"));
 
-    start_transfer_op(impl, buffers, p.p);
+    start_transfer_op(impl, buffers, impl.endpoint_address_.value() + 128, p.p);
 
     p.v = p.p = 0;
   } 
@@ -208,7 +208,7 @@ private:
 
   template <typename BufferSequence, typename Operation>
   BOOST_ASIO_DECL void start_transfer_op(implementation_type& impl, 
-      const BufferSequence& buffers, Operation* op);
+      const BufferSequence& buffers, std::uint8_t address, Operation* op);
 };
 
 } // namespace detail

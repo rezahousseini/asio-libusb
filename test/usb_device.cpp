@@ -48,20 +48,36 @@ int main()
 
       io_context.restart();
 
-      std::vector<std::byte> data;
-      data.push_back(static_cast<std::byte>(0));
-      expect(1_ul == data.size());
+      std::vector<std::byte> command;
+      command.push_back(static_cast<std::byte>(0));
+      
+      expect(1_ul == command.size());
 
-      device->async_send(asio::buffer(data), 
-        [](const boost::system::error_code& ec, std::size_t bytes_transferred)
+      device->async_send(asio::buffer(command), 
+        [&](const boost::system::error_code& ec, std::size_t bytes_transferred)
         {
-          std::cout << "Are we here?" << std::endl;
           expect(!ec) << ec;
-          expect(1_ul == bytes_transferred);
+          expect(1_ul == bytes_transferred); 
         }); 
 
       io_context.run();
-      /* device->close(); */
+    };
+
+    should("async receive") = [&io_context, &device]
+    {
+      io_context.restart(); 
+
+      std::vector<std::byte> data(1024);
+
+      device->async_receive(asio::buffer(data), 
+        [&](const boost::system::error_code& ec, std::size_t bytes_transferred)
+        {
+          std::cout << "Actual length: " << bytes_transferred << std::endl;
+          expect(!ec) << ec;
+          expect(1024_ul == bytes_transferred);
+        });
+
+      io_context.run();
     };
   }; 
 }
