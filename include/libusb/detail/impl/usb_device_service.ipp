@@ -197,7 +197,7 @@ void usb_device_service::start_transfer_op(implementation_type& impl,
       buffers.size(),
       &Operation::callback,
       op,
-      100); // 100ms timeout
+      0); // 100ms timeout
 
   int err = libusb_submit_transfer(op->transfer);
   if (err != LIBUSB_SUCCESS)
