@@ -64,9 +64,11 @@ public:
   }
 
   template <typename Operation>
-  static void do_complete(void* owner, Operation* o, 
+  static void do_complete(void* owner, Operation* base, 
       const boost::system::error_code& ec, std::size_t bytes_transferred)
   { 
+    // Take ownership of the operation object.
+    async_transfer_op* o(static_cast<async_transfer_op*>(base));
     ptr p = { asio::detail::addressof(o->handler_), o, o };
 
     asio::detail::handler_work<Handler, IoExecutor> w(o->handler_, o->io_executor_);
