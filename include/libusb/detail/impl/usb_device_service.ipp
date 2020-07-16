@@ -56,7 +56,6 @@ void usb_device_service::open(implementation_type& impl,
 void usb_device_service::close(implementation_type& impl, 
     boost::system::error_code& ec)
 {
-  impl.is_handling_events_ = false;
   if (is_open(impl))
   {
     int err = libusb_release_interface(impl.dev_handle_, 
@@ -70,12 +69,6 @@ usb_device_service::native_handle_type usb_device_service::native_handle(
     implementation_type& impl)
 {
   return impl.device_;
-}
-
-void usb_device_service::cancel(implementation_type& impl, 
-      boost::system::error_code& /*ec*/)
-{
-  impl.is_handling_events_ = false;
 }
 
 void usb_device_service::do_set_option(implementation_type& impl, 
@@ -159,62 +152,6 @@ size_t usb_device_service::receive(implementation_type& impl,
   ec = libusb_error(rc);
 
   return bytes_transferred;
-}
-
-template <typename Operation>
-void usb_device_service::start_accept_op(implementation_type& impl, 
-    Operation* op)
-{
-  if (is_open(impl))
-  {
-    Operation::do_complete(op, op, asio::error::already_open);
-    return;
-  }
-
-  asio::dispatch(
-    [op]() mutable
-    { 
-      while(!Operation::do_perform(op)) {}
-      Operation::do_complete(op, op);
-    });
-}
-
-template <typename BufferSequence, typename Operation>
-void usb_device_service::start_transfer_op(implementation_type& impl, 
-    const BufferSequence& buffers, std::uint8_t address, Operation* op)
-{
-  if(!is_open(impl))
-  {
-    Operation::do_complete(op, op, asio::error::bad_descriptor, 0);
-    return;
-  }
- 
-  libusb_fill_interrupt_transfer(
-      op->transfer, 
-      impl.dev_handle_, 
-      address, 
-      static_cast<unsigned char*>(buffers.data()),
-      buffers.size(),
-      &Operation::callback,
-      op,
-      0); // 100ms timeout
-
-  int err = libusb_submit_transfer(op->transfer);
-  if (err != LIBUSB_SUCCESS)
-  {
-    Operation::do_complete(op, op, 
-        boost::system::error_code(libusb_error(err)), 0);
-  }
-
-  asio::dispatch(
-      [op]() mutable
-      {
-        /* while(!Operation::do_perform(op)) {} */
-        Operation::do_perform(op);
-        Operation::do_complete(op, op);
-      });
-  /* Operation::do_perform(op); */
-  /* Operation::do_complete(op, op); */
 }
 
 } // namespace detail

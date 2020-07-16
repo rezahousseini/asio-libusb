@@ -14,6 +14,7 @@ namespace asio = boost::asio;
 
 class usb_device_service
  : public asio::detail::execution_context_service_base<usb_device_service>
+ , public asio::detail::resolver_service_base
 {
 public:  
   class implementation_type
@@ -27,9 +28,8 @@ public:
       , ctx_(NULL)
       , interface_number_(0)
       , endpoint_address_(0)
-      , is_handling_events_(false)
     {
-    } 
+    }
   
   private:
     friend class usb_device_service;
@@ -39,13 +39,13 @@ public:
     struct libusb_context* ctx_;
     usb_device_base::interface_number interface_number_;
     usb_device_base::endpoint_address endpoint_address_;
-    std::atomic<bool> is_handling_events_;
   };
 
   typedef implementation_type::native_handle_type native_handle_type;
 
   explicit usb_device_service(asio::execution_context& context)
     : asio::detail::execution_context_service_base<usb_device_service>(context)
+    , resolver_service_base(context)
   {
   }
 
@@ -102,9 +102,6 @@ public:
 
   BOOST_ASIO_DECL native_handle_type native_handle(implementation_type& impl);
 
-  BOOST_ASIO_DECL void cancel(implementation_type& impl, 
-      boost::system::error_code& ec);
-
   template <typename SettableUsbDeviceOption>
   void set_option(implementation_type& impl, 
       const SettableUsbDeviceOption& option, boost::system::error_code& ec)
@@ -127,12 +124,13 @@ public:
     typedef async_accept_op<Device, Handler, IoExecutor> op;
     typename op::ptr p = { asio::detail::addressof(handler),
       op::ptr::allocate(handler), 0 };
-    p.p = new (p.v) op(impl.ctx_, peer, vendor_id, product_id, handler, io_ex);
+    p.p = new (p.v) op(impl.ctx_, peer, vendor_id, product_id, scheduler_, 
+        handler, io_ex);
 
-    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
-          reinterpret_cast<uintmax_t>(impl.handle_), "async_accept"));
+    BOOST_ASIO_HANDLER_CREATION((scheduler_.context(), *p.p, "device", &impl,
+          0, "async_accept"));
 
-    start_accept_op(impl, p.p);
+    start_resolve_op(p.p);
 
     p.v = p.p = 0;
   }
@@ -151,12 +149,13 @@ public:
       ConstBufferSequence, WriteHandler, IoExecutor> op;
     typename op::ptr p = { asio::detail::addressof(handler),
       op::ptr::allocate(handler), 0 };
-    p.p = new (p.v) op(impl.ctx_, buffers, handler, io_ex);
+    p.p = new (p.v) op(impl.ctx_, impl.dev_handle_, 
+        impl.endpoint_address_.value(), buffers, scheduler_, handler, io_ex);
 
-    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
-          reinterpret_cast<uintmax_t>(impl.handle_), "async_send"));
+    BOOST_ASIO_HANDLER_CREATION((scheduler_.context(), *p.p, "device", &impl,
+          0, "async_send"));
 
-    start_transfer_op(impl, buffers, impl.endpoint_address_.value(), p.p);
+    start_resolve_op(p.p);
 
     p.v = p.p = 0;
   }
@@ -175,12 +174,13 @@ public:
       MutableBufferSequence, ReadHandler, IoExecutor> op;
     typename op::ptr p = { asio::detail::addressof(handler),
       op::ptr::allocate(handler), 0 };
-    p.p = new (p.v) op(impl.ctx_, buffers, handler, io_ex);
+    p.p = new (p.v) op(impl.ctx_, impl.dev_handle_, 
+        impl.endpoint_address_.value() + 128, buffers, scheduler_, handler, io_ex);
 
-    BOOST_ASIO_HANDLER_CREATION((context(), *p.p, "device", &impl,
-          reinterpret_cast<uintmax_t>(impl.handle_), "async_receive"));
+    BOOST_ASIO_HANDLER_CREATION((scheduler_.context(), *p.p, "device", &impl,
+          0, "async_receive"));
 
-    start_transfer_op(impl, buffers, impl.endpoint_address_.value() + 128, p.p);
+    start_resolve_op(p.p);
 
     p.v = p.p = 0;
   } 
@@ -201,14 +201,6 @@ private:
   BOOST_ASIO_DECL void do_get_option(const implementation_type& impl, 
       usb_device_base::interface_number& option, 
       boost::system::error_code& ec) const;
-
-  template <typename Operation>
-  BOOST_ASIO_DECL void start_accept_op(implementation_type& impl,
-      Operation* op);
-
-  template <typename BufferSequence, typename Operation>
-  BOOST_ASIO_DECL void start_transfer_op(implementation_type& impl, 
-      const BufferSequence& buffers, std::uint8_t address, Operation* op);
 };
 
 } // namespace detail
